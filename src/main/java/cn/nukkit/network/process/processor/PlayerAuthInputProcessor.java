@@ -20,6 +20,7 @@ import cn.nukkit.level.Location;
 import cn.nukkit.math.BlockFace;
 import cn.nukkit.math.BlockVector3;
 import cn.nukkit.math.Vector3;
+import cn.nukkit.math.Vector3f;
 import cn.nukkit.network.process.DataPacketManager;
 import cn.nukkit.network.process.DataPacketProcessor;
 import cn.nukkit.network.protocol.ItemStackRequestPacket;
@@ -28,13 +29,20 @@ import cn.nukkit.network.protocol.ProtocolInfo;
 import cn.nukkit.network.protocol.types.AuthInputAction;
 import cn.nukkit.network.protocol.types.PlayerActionType;
 import cn.nukkit.network.protocol.types.PlayerBlockActionData;
+import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
+@Slf4j
 public class PlayerAuthInputProcessor extends DataPacketProcessor<PlayerAuthInputPacket> {
     @Override
     public void handle(@NotNull PlayerHandle playerHandle, @NotNull PlayerAuthInputPacket pk) {
         Player player = playerHandle.player;
+
         if (!pk.blockActionData.isEmpty()) {
+            if (pk.blockActionData.size() > 100) {
+                log.debug("{}: Too many actions in item use transaction (got {})", playerHandle.getUsername(), pk.blockActionData.size());
+                return;
+            }
             for (PlayerBlockActionData action : pk.blockActionData.values()) {
                 //hack 自从1.19.70开始，创造模式剑客户端不会发送PREDICT_DESTROY_BLOCK，但仍然发送START_DESTROY_BLOCK，过滤掉
                 if (player.getInventory().getItemInHand().isSword() && player.isCreative() && action.getAction() == PlayerActionType.START_DESTROY_BLOCK) {
@@ -196,15 +204,27 @@ public class PlayerAuthInputProcessor extends DataPacketProcessor<PlayerAuthInpu
                 player.getAdventureSettings().set(AdventureSettings.Type.FLYING, playerToggleFlightEvent.isFlying());
             }
         }
-        Vector3 clientPosition = pk.position.asVector3().subtract(0, playerHandle.getBaseOffset(), 0);
-        float yaw = pk.yaw % 360;
-        float pitch = pk.pitch % 360;
-        float headYaw = pk.headYaw % 360;
+
+        Vector3f rawPos = pk.position;
+        float rawYaw = pk.yaw;
+        float rawPitch = pk.pitch;
+        float rawHeadYaw = pk.headYaw;
+        float[] values = { rawPos.x, rawPos.y, rawPos.z, rawYaw, rawPitch, rawHeadYaw };
+        for (float value : values) {
+            if (Float.isInfinite(value) || Float.isNaN(value)) {
+                log.debug("Invalid movement received, contains NAN/INF components");
+                return;
+            }
+        }
+        Vector3 clientPosition = rawPos.asVector3().subtract(0, playerHandle.getBaseOffset(), 0);
+        float yaw = rawYaw % 360f;
+        float pitch = rawPitch % 360f;
+        float headYaw = rawHeadYaw % 360f;
         if (headYaw < 0) {
-            headYaw += 360;
+            headYaw += 360f;
         }
         if (yaw < 0) {
-            yaw += 360;
+            yaw += 360f;
         }
         Location clientLoc = Location.fromObject(clientPosition, player.level, yaw, pitch, headYaw);
         // Proper player.isPassenger() check may be needed
@@ -220,7 +240,6 @@ public class PlayerAuthInputProcessor extends DataPacketProcessor<PlayerAuthInpu
                     boat.onInput(offsetLoc);
                     playerHandle.handleMovement(offsetLoc);
                 }
-                return;
             }
         } else if (playerHandle.player.riding instanceof EntityHorse entityHorse) {
             if (check(clientLoc, player)) {
@@ -232,7 +251,6 @@ public class PlayerAuthInputProcessor extends DataPacketProcessor<PlayerAuthInpu
                     playerLoc = clientLoc.add(0, 0.8, 0);
                 }
                 playerHandle.handleMovement(playerLoc);
-                return;
             }
         }
         playerHandle.offerMovementTask(clientLoc);

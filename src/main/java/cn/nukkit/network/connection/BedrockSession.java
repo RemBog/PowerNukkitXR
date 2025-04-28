@@ -583,6 +583,10 @@ public class BedrockSession {
         this.packetHandler = packetHandler;
     }
 
+    public @Nullable PacketHandler getPacketHandler() {
+        return packetHandler;
+    }
+
     @Nullable
     public DataPacketManager getDataPacketManager() {
         if (packetHandler != null && packetHandler instanceof InGamePacketHandler inGamePacketHandler) {

@@ -34,6 +34,12 @@ import org.jetbrains.annotations.NotNull;
 
 @Slf4j
 public class PlayerAuthInputProcessor extends DataPacketProcessor<PlayerAuthInputPacket> {
+
+
+    protected  Vector3 lastPlayerAuthInputPosition = null;
+    protected Float lastPlayerAuthInputYaw = null;
+    protected Float lastPlayerAuthInputPitch = null;
+
     @Override
     public void handle(@NotNull PlayerHandle playerHandle, @NotNull PlayerAuthInputPacket pk) {
         Player player = playerHandle.player;

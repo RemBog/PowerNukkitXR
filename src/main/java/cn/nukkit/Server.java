@@ -622,7 +622,7 @@ public class Server {
 
         for (BanEntry entry : this.getIPBans().getEntires().values()) {
             try {
-                this.getNetwork().blockAddress(InetAddress.getByName(entry.getName()), -1);
+                this.getNetwork().blockAddress(InetAddress.getByName(entry.getName()));
             } catch (UnknownHostException e) {
                 // ignore
             }

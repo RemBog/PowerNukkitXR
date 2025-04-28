@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.cloudburstmc.netty.channel.raknet.RakChannelFactory;
 import org.cloudburstmc.netty.channel.raknet.RakServerChannel;
 import org.cloudburstmc.netty.channel.raknet.config.RakChannelOption;
+import org.cloudburstmc.netty.handler.codec.raknet.server.RakServerRateLimiter;
 import org.jetbrains.annotations.Nullable;
 import oshi.SystemInfo;
 import oshi.hardware.NetworkIF;
@@ -44,6 +45,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -55,7 +57,6 @@ public class Network {
     private final LinkedList<NetWorkStatisticData> netWorkStatisticDataList = new LinkedList<>();
     private final AtomicReference<List<NetworkIF>> hardWareNetworkInterfaces = new AtomicReference<>(null);
     private final Map<InetSocketAddress, BedrockSession> sessionMap = new ConcurrentHashMap<>();
-    private final Map<InetAddress, LocalDateTime> blockIpMap = new HashMap<>();
     private final RakServerChannel channel;
     private BedrockPong pong;
 
@@ -209,13 +210,22 @@ public class Network {
         return session == null ? -1 : (int) session.getPing();
     }
 
+
+    public void blockAddress(InetAddress address, long timeout, TimeUnit unit) {
+        RakServerRateLimiter rateLimiter = channel.pipeline().get(RakServerRateLimiter.class);
+        if (rateLimiter != null) {
+            rateLimiter.blockAddress(address, timeout, unit);
+        }
+    }
+
+
     /**
      * Block an address forever.
      *
      * @param address the address
      */
     public void blockAddress(InetAddress address) {
-        blockIpMap.put(address, LocalDateTime.of(9999, 1, 1, 0, 0));
+        this.blockAddress(address, Integer.MAX_VALUE, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -225,7 +235,7 @@ public class Network {
      * @param timeout the timeout,unit millisecond
      */
     public void blockAddress(InetAddress address, int timeout) {
-        blockIpMap.put(address, LocalDateTime.now().plus(timeout, ChronoUnit.MILLIS));
+        this.blockAddress(address, timeout, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -234,7 +244,10 @@ public class Network {
      * @param address the address
      */
     public void unblockAddress(InetAddress address) {
-        blockIpMap.remove(address);
+        RakServerRateLimiter rateLimiter = channel.pipeline().get(RakServerRateLimiter.class);
+        if (rateLimiter != null) {
+            rateLimiter.unblockAddress(address);
+        }
     }
 
     /**
@@ -259,10 +272,8 @@ public class Network {
     public void replaceSessionAddress(InetSocketAddress oldAddress, InetSocketAddress newAddress, BedrockSession newSession) {
         if (!this.sessionMap.containsKey(oldAddress))
             return;
-
         if (isAddressBlocked(newAddress))
             return;
-
         onSessionDisconnect(oldAddress);
         this.sessionMap.put(newAddress, newSession);
     }
@@ -271,10 +282,10 @@ public class Network {
      * whether the address is blocked
      */
     public boolean isAddressBlocked(InetSocketAddress address) {
-        InetAddress a = address.getAddress();
-        if (this.blockIpMap.containsKey(a)) {
-            LocalDateTime localDateTime = this.blockIpMap.get(a);
-            return LocalDateTime.now().isBefore(localDateTime);
+        RakServerRateLimiter rateLimiter = channel.pipeline().get(RakServerRateLimiter.class);
+        if (rateLimiter != null) {
+            InetAddress a = address.getAddress();
+            return rateLimiter.isAddressBlocked(a);
         }
         return false;
     }
